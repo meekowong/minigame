@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <title>School Patrol – Corridor Game</title>
+  <style>
+    body {
+      margin: 0;
+      background: #e0e7f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: Arial, sans-serif;
+    }
+    #gameWrapper {
+      text-align: center;
+    }
+    canvas {
+      border: 2px solid #4a90e2;
+      background: #f8f9fa;
+    }
+    #instructions {
+      color: #333;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="gameWrapper">
+    <canvas id="canvas" width="900" height="700"></canvas>
+    <div id="instructions">
+      用 ↑↓ 鍵移動風紀隊，空白鍵捉學生！每關10個學生。
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // 顏色設定：走廊、樓梯、教室（奶粉粉色邊框）、人物等
+    const colors = {
+      wall: '#8B9D9A',
+      floor: '#DDE4E1',
+      classRoom: '#FDEAE5',       // 奶粉粉色教室
+      classRoomBorder: '#F5B7B1', // 奶粉粉色邊框
+      stair: '#4A90E2',
+      door: '#8B4513',
+      prefectBody: '#87CEEB',
+      studentBody: '#FFA07A',
+      skin: '#F5DEB3',
+      eye: '#000',
+      text: '#2C3E50',
+      hudBg: '#ECF0F1',
+      caught: '#27AE60',
+      missed: '#E74C3C'
+    };
+
+    // 走廊與教室布局：中間窄走廊、兩側 4 間教室
+    const corridorX = 410;
+    const corridorWidth = 80;       // 比之前窄
+    const corridorTopY = 100;
+    const corridorBottomY = H - 100;
+    const topStairY = 0;
+    const bottomStairY = corridorBottomY;
+    const roomHeight = (corridorBottomY - corridorTopY) / 4;
+    const roomDepth = 150;
+
+    const leftRooms = [
+      { y: corridorTopY + roomHeight * 0, doorX: corridorX, doorSide: 'left' },
+      { y: corridorTopY + roomHeight * 1, doorX: corridorX, doorSide: 'left' },
+      { y: corridorTopY + roomHeight * 2, doorX: corridorX, doorSide: 'left' },
+      { y: corridorTopY + roomHeight * 3, doorX: corridorX, doorSide: 'left' }
+    ];
+    const rightRooms = [
+      { y: corridorTopY + roomHeight * 0, doorX: corridorX + corridorWidth, doorSide: 'right' },
+      { y: corridorTopY + roomHeight * 1, doorX: corridorX + corridorWidth, doorSide: 'right' },
+      { y: corridorTopY + roomHeight * 2, doorX: corridorX + corridorWidth, doorSide: 'right' },
+      { y: corridorTopY + roomHeight * 3, doorX: corridorX + corridorWidth, doorSide: 'right' }
+    ];
+
+    // 狀態：風紀、學生、粒子、關卡
+let prefect = {
+  x: corridorX + corridorWidth / 2 - 15,
+  y: corridorBottomY - 10 - 50, // 走廊底部，預留 10px 緩衝
+  w: 30,
+  h: 50,
+  vy: 0
+};
+
+let student = {
+  active: false,
+  visible: false,   // 只在過門後才顯示
+  x: 0,
+  y: 0,
+  w: 24,
+  h: 40,
+  vx: 0,
+  vy: 0,
+  phase: 'none',   // 'toDoor' → 'downCorridor'
+  spawnRoom: null,
+  targetY: null
+};
+
+let particles = [];
+let caught = 0;
+let missed = 0;
+let stage = 1;
+let stageTransitioning = false;
+let studentsThisStage = 0;
+let spawnCooldown = 0;
+let message = '';
+let messageTimer = 0;
+let keys = {};
+let spacePressed = false;
+
+    const maxStudentsPerStage = 10;
+    const catchRange = 60;
+    const baseStudentSpeed = 2.4;
+
+    // 每關速度 +10%
+    function currentSpeedFactor() {
+      return 1.0 + (stage - 1) * 0.1;
+    }
+
+    function resetStage() {
+      caught = 0;
+      missed = 0;
+      studentsThisStage = 0;
+      spawnCooldown = 60;
+      stageTransitioning = false;  // 新增：重置轉換標記
+      message = `關卡${stage}開始`;
+      messageTimer = 120;
+    }
+
+    function nextStage() {
+      if (stage < 6) {
+        stage++;
+        message = `關卡 ${stage}`;
+        messageTimer = 120;
+        resetStage();
+      } else {
+        message = '全部完成！';
+        messageTimer = 120;
+        spawnCooldown = -1;
+      }
+    }
+
+    // 根據教室位置決定去頂樓梯或底樓梯（較遠的那一邊）
+    function chooseTargetY(room) {
+      const midY = (corridorTopY + corridorBottomY) / 2;
+      if (room.y + roomHeight / 2 < midY) {
+        return corridorBottomY; // 上半部教室 → 跑去下樓梯
+      } else {
+        return corridorTopY;    // 下半部教室 → 跑去上樓梯
+      }
+    }
+
+    function spawnStudent() {
+      if (studentsThisStage >= maxStudentsPerStage || stageTransitioning) return;  // 新增：檢查轉換標記
+
+      const isLeft = Math.random() < 0.5;
+      const rooms = isLeft ? leftRooms : rightRooms;
+      const room = rooms[Math.floor(Math.random() * rooms.length)];
+      const speed = baseStudentSpeed * currentSpeedFactor();
+
+      student.active = true;
+      student.visible = false;
+      student.spawnRoom = room;
+      student.phase = 'toDoor';
+      student.targetY = chooseTargetY(room);
+
+      if (room.doorSide === 'left') {
+        student.x = corridorX - roomDepth + 10;
+        student.vx = speed;
+      } else {
+        student.x = corridorX + corridorWidth + roomDepth - student.w - 10;
+        student.vx = -speed;
+      }
+      student.y = room.y + (roomHeight - student.h) / 2;
+      student.vy = 0;
+
+      studentsThisStage++;
+    }
+
+    function tryCatch() {
+      if (!student.active || !student.visible) return;
+
+      const dy = Math.abs(student.y + student.h / 2 - (prefect.y + prefect.h / 2));
+      if (dy <= catchRange) {
+        spawnExplosion(student.x + student.w / 2, student.y + student.h / 2);
+        student.active = false;
+        student.visible = false;
+        caught++;
+        message = '捉到！';
+        messageTimer = 60;
+        spawnCooldown = 40;
+        
+        if (caught + missed >= maxStudentsPerStage) {
+          stageTransitioning = true;  // 新增：設置轉換標記
+          setTimeout(() => {
+            nextStage();
+          }, 800);
+        }
+      } else {
+        message = '走失！';
+        messageTimer = 60;
+      }
+    }
+
+    function spawnExplosion(x, y) {
+      for (let i = 0; i < 12; i++) {
+        particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 6,
+          vy: (Math.random() - 0.5) * 6,
+          life: 30,
+          maxLife: 30
+        });
+      }
+    }
+
+    function updateParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        p.vx *= 0.95;
+        p.vy *= 0.95;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+    }
+
+    function update() {
+      prefect.vy = 0;
+      if (keys['ArrowUp'] || keys['w'] || keys['W']) prefect.vy = -4;
+      if (keys['ArrowDown'] || keys['s'] || keys['S']) prefect.vy = 4;
+      prefect.y += prefect.vy;
+      prefect.y = Math.max(
+        corridorTopY + 10,
+        Math.min(corridorBottomY - 10 - prefect.h, prefect.y)
+      );
+
+      if (student.active) {
+        if (student.phase === 'toDoor') {
+          if (student.spawnRoom.doorSide === 'left') {
+            student.x += student.vx;
+            if (student.x + student.w >= corridorX) {
+              student.x = corridorX + (corridorWidth - student.w) / 2;
+              student.phase = 'downCorridor';
+              student.vx = 0;
+              student.vy = (student.targetY > student.y ? 1 : -1) * baseStudentSpeed * currentSpeedFactor();
+              student.visible = true;
+            }
+          } else {
+            student.x += student.vx;
+            if (student.x <= corridorX + corridorWidth - student.w) {
+              student.x = corridorX + (corridorWidth - student.w) / 2;
+              student.phase = 'downCorridor';
+              student.vx = 0;
+              student.vy = (student.targetY > student.y ? 1 : -1) * baseStudentSpeed * currentSpeedFactor();
+              student.visible = true;
+            }
+          }
+        } else if (student.phase === 'downCorridor' && student.visible) {
+          student.y += student.vy;
+
+          if (
+            (student.vy < 0 && student.y <= corridorTopY - student.h) ||
+            (student.vy > 0 && student.y >= corridorBottomY)
+          ) {
+            student.active = false;
+            student.visible = false;
+            missed++;
+            message = '走失！';
+            messageTimer = 60;
+            spawnCooldown = 40;
+            
+            if (caught + missed >= maxStudentsPerStage) {
+              stageTransitioning = true;  // 新增：設置轉換標記
+              setTimeout(() => {
+                nextStage();
+              }, 800);
+            }
+          }
+        }
+      }
+
+      if (spawnCooldown > 0) {
+        spawnCooldown--;
+      } else if (spawnCooldown === 0 && !student.active && studentsThisStage < maxStudentsPerStage && !stageTransitioning) {  // 新增：檢查轉換標記
+        spawnStudent();
+        spawnCooldown = 80 - stage * 8;
+      }
+
+      updateParticles();
+      if (messageTimer > 0) messageTimer--;
+    }
+
+    function drawCharacter(x, y, w, h, bodyColor) {
+      // 身體
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(x, y + h * 0.3, w, h * 0.7);
+
+      // 頭
+      ctx.fillStyle = colors.skin;
+      ctx.fillRect(x, y, w, h * 0.3);
+
+      // 眼睛
+      const eyeSize = w * 0.15;
+      ctx.fillStyle = colors.eye;
+      ctx.fillRect(x + w * 0.2, y + h * 0.1, eyeSize, eyeSize * 0.7);
+      ctx.fillRect(x + w * 0.55, y + h * 0.1, eyeSize, eyeSize * 0.7);
+    }
+
+    function drawCorridorAndRooms() {
+      ctx.fillStyle = colors.floor;
+      ctx.fillRect(0, 0, W, H);
+
+      // 左邊教室：奶粉粉色填滿 + 邊框
+      leftRooms.forEach(room => {
+        ctx.fillStyle = colors.classRoom;
+        ctx.fillRect(
+          corridorX - roomDepth,
+          room.y,
+          roomDepth,
+          roomHeight
+        );
+        ctx.strokeStyle = colors.classRoomBorder;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(
+          corridorX - roomDepth,
+          room.y,
+          roomDepth,
+          roomHeight
+        );
+      });
+
+      // 右邊教室：奶粉粉色填滿 + 邊框
+      rightRooms.forEach(room => {
+        ctx.fillStyle = colors.classRoom;
+        ctx.fillRect(
+          corridorX + corridorWidth,
+          room.y,
+          roomDepth,
+          roomHeight
+        );
+        ctx.strokeStyle = colors.classRoomBorder;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(
+          corridorX + corridorWidth,
+          room.y,
+          roomDepth,
+          roomHeight
+        );
+      });
+
+      // 走廊牆與地板（窄走廊）
+      ctx.fillStyle = colors.wall;
+      ctx.fillRect(corridorX - 10, corridorTopY, 10, corridorBottomY - corridorTopY); // 左牆
+      ctx.fillRect(corridorX + corridorWidth, corridorTopY, 10, corridorBottomY - corridorTopY); // 右牆
+
+      ctx.fillStyle = colors.floor;
+      ctx.fillRect(corridorX, corridorTopY, corridorWidth, corridorBottomY - corridorTopY);
+
+      // 門（棕色短直線，長度 50%）
+ctx.fillStyle = colors.door;
+leftRooms.forEach(room => {
+  const doorHeight = (roomHeight - 20) / 2; // 原本的一半
+  ctx.fillRect(corridorX, room.y + 10, 4, doorHeight);
+});
+rightRooms.forEach(room => {
+  const doorHeight = (roomHeight - 20) / 2;
+  ctx.fillRect(corridorX + corridorWidth - 4, room.y + 10, 4, doorHeight);
+});
+
+
+      // 簡化樓梯：純矩形連接走廊到邊界
+      ctx.fillStyle = colors.stair;
+      // 上樓梯
+      ctx.fillRect(corridorX, topStairY, corridorWidth, corridorTopY);
+      // 下樓梯
+      ctx.fillRect(corridorX, bottomStairY, corridorWidth, H - bottomStairY);
+
+      // 樓梯標籤
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // 上樓梯標籤
+      ctx.fillText('樓梯', corridorX + corridorWidth / 2, corridorTopY / 2);
+      // 下樓梯標籤
+      ctx.fillText('樓梯', corridorX + corridorWidth / 2, (bottomStairY + H) / 2);
+
+      // 樓層標示：文字放大到 300%
+ctx.fillStyle = 'white';
+ctx.fillRect(20, H - 60, 110, 50);  // 略放大底框
+ctx.fillStyle = colors.text;
+ctx.font = 'bold 84px Arial';       // 由 56px → 84px
+ctx.textAlign = 'center';
+ctx.textBaseline = 'middle';
+ctx.fillText(`${stage}F`, 75, H - 35);
+
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      drawCorridorAndRooms();
+
+      // 風紀（藍色）在走廊中
+      drawCharacter(prefect.x, prefect.y, prefect.w, prefect.h, colors.prefectBody);
+
+      // 學生：只在 visible = true 時畫出
+      if (student.active && student.visible) {
+        drawCharacter(student.x, student.y, student.w, student.h, colors.studentBody);
+      }
+
+      // 爆炸粒子
+      particles.forEach(p => {
+        const alpha = p.life / p.maxLife;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = colors.caught;
+        ctx.fillRect(p.x, p.y, 4, 4);
+        ctx.restore();
+      });
+
+      // 右側 HUD
+      ctx.fillStyle = colors.hudBg;
+      ctx.fillRect(W - 220, H / 2 - 100, 200, 200);
+      ctx.strokeStyle = colors.text;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(W - 220, H / 2 - 100, 200, 200);
+
+      ctx.fillStyle = colors.text;
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`關卡 ${stage}`, W - 120, H / 2 - 60);
+      ctx.fillStyle = colors.caught;
+      ctx.fillText(`捉到 ${caught}/${maxStudentsPerStage}`, W - 120, H / 2 - 20);
+      ctx.fillStyle = colors.missed;
+      ctx.fillText(`走失 ${missed}/${maxStudentsPerStage}`, W - 120, H / 2 + 20);
+
+      // 抓捕範圍圈（只看垂直距離）
+      if (student.active && student.visible) {
+        const dy = Math.abs(student.y + student.h / 2 - (prefect.y + prefect.h / 2));
+        ctx.strokeStyle = dy <= catchRange ? colors.caught : colors.missed;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(prefect.x + prefect.w / 2, prefect.y + prefect.h / 2, catchRange, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // 右下角訊息（200% 放大，40px）
+      if (messageTimer > 0) {
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(W - 220, H - 60, 200, 50);
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 40px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(message, W - 120, H - 35);
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      if (e.code === 'Space' && !spacePressed) {
+        spacePressed = true;
+        tryCatch();
+      }
+    });
+
+    window.addEventListener('keyup', e => {
+      keys[e.key] = false;
+      if (e.code === 'Space') spacePressed = false;
+    });
+
+    // 初始化：由第 1 關開始
+    stage = 1;
+    resetStage();
+    loop();
+  </script>
+</body>
+</html>

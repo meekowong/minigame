@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>HK Double-Decker Bus Maze – 10 Stages</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      color: #fff;
+      font-family: sans-serif;
+    }
+    #gameContainer {
+      position: relative;
+      border: 2px solid #444;
+    }
+    canvas {
+      display: block;
+      background: #000; /* road background black */
+    }
+    #info {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(0,0,0,0.5);
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+    #message {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.7);
+      padding: 10px 20px;
+      font-size: 20px;
+      border-radius: 6px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="gameContainer">
+    <canvas id="game" width="800" height="600"></canvas>
+    <div id="info">
+      ↑ = forward, ↓ = reverse, ← / → = turn<br/>
+      10 stages, bottom-center → top-center, 3+ turns each
+    </div>
+    <div id="message"></div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const messageEl = document.getElementById('message');
+
+    // --- Bus state ---
+    const bus = {
+      width: 60,
+      height: 24,
+      x: 0,
+      y: 0,
+      angle: 0,
+      speed: 0,
+      maxSpeed: 3,
+      accel: 0.12,
+      reverseAccel: 0.08,
+      friction: 0.06,
+      turnSpeed: 0.06
+    };
+
+    // Road width = 3x bus width
+    const roadWidth = bus.width * 3; // 180
+    const halfRoad = roadWidth / 2;
+
+    // Start & goal
+    const start = {
+      x: canvas.width / 2,
+      y: canvas.height - bus.height * 2
+    };
+    const goal = {
+      x: canvas.width / 2,
+      y: bus.height * 2,
+      radius: 40
+    };
+
+    const cellSize = 40;
+    let buildings = [];
+    let currentStageIndex = 0;
+    let finishedAll = false;
+    let showText = '';
+    let showTextUntil = 0;
+
+    function flashMessage(text, durationMs = 1000) {
+      showText = text;
+      showTextUntil = performance.now() + durationMs;
+      messageEl.textContent = text;
+      messageEl.style.display = 'block';
+    }
+
+    function inRect(x, y, rx, ry, rw, rh) {
+      return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
+    }
+
+    const midX = canvas.width / 2;
+    const quarterX = canvas.width / 4;
+    const threeQuarterX = canvas.width * 3 / 4;
+    const midY = canvas.height / 2;
+    const upperY = canvas.height / 4;
+    const lowerY = canvas.height * 3 / 4;
+
+    // --- Stage definitions (same paths, stage 7 widened near goal) ---
+    const stages = [
+      // Stage 1
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,              h: canvas.height - lowerY },
+        { x: quarterX,              y: lowerY - halfRoad,   w: midX - quarterX,       h: roadWidth },
+        { x: quarterX - halfRoad,   y: upperY,              w: roadWidth,             h: lowerY - upperY },
+        { x: quarterX,              y: upperY - halfRoad,   w: threeQuarterX - quarterX, h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: goal.y,           w: roadWidth,             h: upperY - goal.y + halfRoad },
+        { x: midX,                  y: goal.y - halfRoad,   w: threeQuarterX - midX,  h: roadWidth }
+      ],
+      // Stage 2
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,             h: canvas.height - lowerY },
+        { x: midX,                  y: lowerY - halfRoad,   w: threeQuarterX - midX,  h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: upperY,           w: roadWidth,             h: lowerY - upperY },
+        { x: quarterX,              y: upperY - halfRoad,   w: threeQuarterX - quarterX, h: roadWidth },
+        { x: quarterX - halfRoad,   y: goal.y,              w: roadWidth,             h: upperY - goal.y + halfRoad },
+        { x: midX - halfRoad,       y: goal.y - halfRoad,   w: halfRoad,             h: roadWidth }
+      ],
+      // Stage 3
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,             h: canvas.height - lowerY },
+        { x: quarterX + 40,         y: lowerY - halfRoad,   w: midX - (quarterX + 40), h: roadWidth },
+        { x: quarterX + 40 - halfRoad, y: upperY + 40,      w: roadWidth,             h: lowerY - (upperY + 40) },
+        { x: quarterX + 40,         y: upperY,              w: threeQuarterX - (quarterX + 40), h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: goal.y + 40,      w: roadWidth,             h: upperY - (goal.y + 40) + halfRoad },
+        { x: midX,                  y: goal.y - halfRoad,   w: threeQuarterX - midX,  h: roadWidth }
+      ],
+      // Stage 4
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,             h: canvas.height - lowerY },
+        { x: quarterX,              y: lowerY - halfRoad,   w: midX - quarterX,       h: roadWidth },
+        { x: quarterX - halfRoad,   y: midY,                w: roadWidth,             h: lowerY - midY },
+        { x: quarterX,              y: midY - halfRoad,     w: threeQuarterX - quarterX, h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: goal.y,           w: roadWidth,             h: midY - goal.y + halfRoad },
+        { x: midX,                  y: goal.y - halfRoad,   w: threeQuarterX - midX,  h: roadWidth }
+      ],
+      // Stage 5
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,             h: canvas.height - lowerY },
+        { x: midX,                  y: midY + 40 - halfRoad,w: threeQuarterX - midX,  h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: upperY + 40,      w: roadWidth,             h: midY + 40 - (upperY + 40) },
+        { x: quarterX,              y: upperY + 40 - halfRoad, w: threeQuarterX - quarterX, h: roadWidth },
+        { x: midX - halfRoad,       y: goal.y + 20,         w: roadWidth,             h: (upperY + 40) - (goal.y + 20) },
+        { x: midX - halfRoad,       y: goal.y - halfRoad,   w: roadWidth,             h: roadWidth }
+      ],
+      // Stage 6
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,             h: canvas.height - lowerY },
+        { x: quarterX + 20,         y: lowerY - halfRoad,   w: midX - (quarterX + 20), h: roadWidth },
+        { x: quarterX + 20 - halfRoad, y: midY,             w: roadWidth,             h: lowerY - midY },
+        { x: quarterX + 20,         y: midY - halfRoad,     w: threeQuarterX - (quarterX + 20), h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: goal.y + 70,      w: roadWidth,             h: midY - (goal.y + 70) },
+        { x: midX,                  y: goal.y - halfRoad,   w: threeQuarterX - midX,  h: roadWidth }
+      ],
+      // Stage 7 (widened near goal)
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,             h: canvas.height - lowerY },
+        { x: midX,                  y: lowerY - halfRoad,   w: threeQuarterX - midX,  h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: midY + 40,        w: roadWidth,             h: lowerY - (midY + 40) },
+        { x: quarterX,              y: midY + 40 - halfRoad,w: threeQuarterX - quarterX, h: roadWidth },
+        { x: quarterX - halfRoad,   y: goal.y + 50,         w: roadWidth,             h: midY + 40 - (goal.y + 50) },
+        { x: quarterX,              y: goal.y - halfRoad,   w: threeQuarterX - quarterX, h: roadWidth }
+      ],
+      // Stage 8
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,             h: canvas.height - lowerY },
+        { x: quarterX,              y: lowerY - halfRoad,   w: midX - quarterX,       h: roadWidth },
+        { x: quarterX - halfRoad,   y: midY + 20,           w: roadWidth,             h: lowerY - (midY + 20) },
+        { x: quarterX,              y: midY + 20 - halfRoad,w: threeQuarterX - quarterX, h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: goal.y + 20,      w: roadWidth,             h: midY + 20 - (goal.y + 20) },
+        { x: midX,                  y: goal.y - halfRoad,   w: threeQuarterX - midX,  h: roadWidth }
+      ],
+      // Stage 9
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,             h: canvas.height - lowerY },
+        { x: midX,                  y: lowerY - halfRoad,   w: threeQuarterX - midX,  h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: midY,             w: roadWidth,             h: lowerY - midY },
+        { x: quarterX + 40,         y: midY - halfRoad,     w: threeQuarterX - (quarterX + 40), h: roadWidth },
+        { x: quarterX + 40 - halfRoad, y: goal.y + 50,      w: roadWidth,             h: midY - (goal.y + 50) },
+        { x: midX - halfRoad,       y: goal.y - halfRoad,   w: halfRoad,              h: roadWidth }
+      ],
+      // Stage 10
+      [
+        { x: midX - halfRoad,       y: lowerY,              w: roadWidth,             h: canvas.height - lowerY },
+        { x: quarterX,              y: lowerY - halfRoad,   w: midX - quarterX,       h: roadWidth },
+        { x: quarterX - halfRoad,   y: midY + 60,           w: roadWidth,             h: lowerY - (midY + 60) },
+        { x: quarterX,              y: midY + 60 - halfRoad,w: threeQuarterX - quarterX, h: roadWidth },
+        { x: threeQuarterX - halfRoad, y: goal.y + 60,      w: roadWidth,             h: midY + 60 - (goal.y + 60) },
+        { x: midX,                  y: goal.y - halfRoad,   w: threeQuarterX - midX,  h: roadWidth }
+      ]
+    ];
+
+    function buildStage(stageIndex) {
+      const corridors = stages[stageIndex];
+      buildings = [];
+
+      for (let y = 0; y < canvas.height; y += cellSize) {
+        for (let x = 0; x < canvas.width; x += cellSize) {
+          const centerX = x + cellSize / 2;
+          const centerY = y + cellSize / 2;
+
+          let insideCorridor = false;
+          for (const c of corridors) {
+            if (inRect(centerX, centerY, c.x, c.y, c.w, c.h)) {
+              insideCorridor = true;
+              break;
+            }
+          }
+          if (!insideCorridor) {
+            buildings.push({ x, y, w: cellSize, h: cellSize });
+          }
+        }
+      }
+    }
+
+    function resetBus() {
+      bus.x = start.x;
+      bus.y = start.y;
+      bus.angle = -Math.PI / 2;
+      bus.speed = 0;
+    }
+
+    function isCollidingRect(ax, ay, aw, ah, bx, by, bw, bh) {
+      return (
+        ax < bx + bw &&
+        ax + aw > bx &&
+        ay < by + bh &&
+        ay + ah > by
+      );
+    }
+
+    function willCollide(nextX, nextY) {
+      const halfW = bus.width / 2;
+      const halfH = bus.height / 2;
+      const left   = nextX - halfW;
+      const top    = nextY - halfH;
+      const width  = bus.width;
+      const height = bus.height;
+
+      for (const b of buildings) {
+        if (isCollidingRect(left, top, width, height, b.x, b.y, b.w, b.h)) {
+          return true;
+        }
+      }
+      if (left < 0 || top < 0 ||
+          left + width > canvas.width ||
+          top + height > canvas.height) {
+        return true;
+      }
+      return false;
+    }
+
+    const keys = {
+      ArrowUp: false,
+      ArrowDown: false,
+      ArrowLeft: false,
+      ArrowRight: false
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code in keys) {
+        keys[e.code] = true;
+        e.preventDefault();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code in keys) {
+        keys[e.code] = false;
+        e.preventDefault();
+      }
+    });
+
+    function update() {
+      const now = performance.now();
+      if (showText && now > showTextUntil) {
+        showText = '';
+        messageEl.style.display = 'none';
+      }
+
+      if (keys.ArrowUp) bus.speed += bus.accel;
+      if (keys.ArrowDown) bus.speed -= bus.reverseAccel;
+      if (!keys.ArrowUp && !keys.ArrowDown) {
+        bus.speed *= (1 - bus.friction);
+      }
+
+      const maxRev = -1.5;
+      if (bus.speed > bus.maxSpeed) bus.speed = bus.maxSpeed;
+      if (bus.speed < maxRev) bus.speed = maxRev;
+      if (Math.abs(bus.speed) < 0.02) bus.speed = 0;
+
+      if (bus.speed !== 0) {
+        const direction = bus.speed > 0 ? 1 : -1;
+        if (keys.ArrowLeft) bus.angle -= bus.turnSpeed * direction;
+        if (keys.ArrowRight) bus.angle += bus.turnSpeed * direction;
+      }
+
+      const nextX = bus.x + Math.cos(bus.angle) * bus.speed;
+      const nextY = bus.y + Math.sin(bus.angle) * bus.speed;
+
+      if (!willCollide(nextX, nextY)) {
+        bus.x = nextX;
+        bus.y = nextY;
+      } else {
+        bus.speed *= -0.3;
+      }
+
+      // Goal detection
+      const dx = bus.x - goal.x;
+      const dy = bus.y - goal.y;
+      const distSq = dx * dx + dy * dy;
+      if (!finishedAll && distSq <= goal.radius * goal.radius) {
+        if (currentStageIndex < stages.length - 1) {
+          currentStageIndex++;
+          flashMessage('next stage', 800);
+          buildStage(currentStageIndex);
+          resetBus();
+        } else {
+          finishedAll = true;
+          flashMessage('finished', 2000);
+        }
+      }
+    }
+
+    // Grey rooftop-style building blocks (no windows)
+    function drawBuildings() {
+      const roofColors = ['#4a4a4a', '#555555', '#606060', '#686868', '#727272'];
+      const accentColors = ['#8c8c8c', '#999999', '#aaaaaa'];
+
+      for (const b of buildings) {
+        const idx = (b.x / cellSize + b.y / cellSize) | 0;
+        const baseColor = roofColors[idx % roofColors.length];
+
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+
+        ctx.strokeStyle = '#2b2b2b';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(b.x + 2, b.y + 2, b.w - 4, b.h - 4);
+
+        ctx.fillStyle = accentColors[idx % accentColors.length];
+        ctx.fillRect(b.x + 8, b.y + 8, 18, 10);
+        ctx.fillRect(b.x + b.w - 30, b.y + b.h - 18, 22, 8);
+
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(b.x + b.w / 2 - 12, b.y + 6, 24, 6);
+      }
+    }
+
+    function drawRoad() {
+      // background already black; no lane lines
+    }
+
+    // Yellow double-decker bus
+    function drawBus() {
+      ctx.save();
+      ctx.translate(bus.x, bus.y);
+      ctx.rotate(bus.angle);
+
+      const w = bus.width;
+      const h = bus.height;
+
+      ctx.fillStyle = '#ffd21f';
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+
+      ctx.fillStyle = '#333';
+      const windowMarginX = 6;
+      const windowMarginY = 3;
+      const windowWidth = 10;
+      const windowHeight = 6;
+      for (let i = 0; i < 4; i++) {
+        ctx.fillRect(
+          -w / 2 + windowMarginX + i * (windowWidth + 4),
+          -h / 2 + windowMarginY,
+          windowWidth,
+          windowHeight
+        );
+      }
+      for (let i = 0; i < 3; i++) {
+        ctx.fillRect(
+          -w / 2 + windowMarginX + i * (windowWidth + 8),
+          -h / 2 + windowMarginY + 10,
+          windowWidth,
+          windowHeight
+        );
+      }
+
+      ctx.fillStyle = '#222';
+      ctx.fillRect(w / 2 - 8, -h / 2 + 2, 6, h - 4);
+
+      ctx.fillStyle = '#f5e27a';
+      ctx.fillRect(-w / 2 + 4, -h / 2 + 1, w - 8, 3);
+
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.arc(-w / 3, h / 2 + 3, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(w / 3, h / 2 + 3, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    // Bus stop signs: rectangular plates on the right of the pole, closer to start/goal
+    function drawBusStopSigns() {
+      // Near start: right side of pole plate, slightly closer
+      drawBusStop(start.x - 55, start.y - 25);
+      // Near goal: bus stop on left of goal, plate still to right of its pole
+      drawBusStop(goal.x - 55, goal.y - 25);
+    }
+
+function drawBusStop(x, y) {
+  // Plate to the RIGHT of the pole, portrait 16:9
+  const plateWidth = 18;              // 9 units
+  const plateHeight = 32;             // 16 units
+  const plateX = x + 3;               // right of pole
+  const plateY = y;                   // top of plate
+
+  // Pole: same top as plate, taller so it extends below
+  const poleWidth = 6;
+  const poleHeight = 46;              // taller than plate
+  const poleX = x - poleWidth / 2;    // center pole on x
+  const poleY = plateY;               // align top with plate top
+
+  // Draw pole
+  ctx.fillStyle = '#cccccc';
+  ctx.fillRect(poleX, poleY, poleWidth, poleHeight);
+
+  // Draw plate
+  ctx.fillStyle = '#ffd21f'; // yellow
+  ctx.fillRect(plateX, plateY, plateWidth, plateHeight);
+
+  ctx.strokeStyle = '#e0a800';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(plateX, plateY, plateWidth, plateHeight);
+
+  // Blue strip at bottom of plate
+  const stripHeight = 8;
+  ctx.fillStyle = '#0055aa';
+  ctx.fillRect(plateX, plateY + plateHeight - stripHeight, plateWidth, stripHeight);
+}
+
+    function drawStartGoal() {
+      ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+      ctx.strokeStyle = '#00ff00';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(start.x, start.y, 25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#00ff00';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('START', start.x, start.y + 40);
+
+      ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+      ctx.strokeStyle = '#ffd700';
+      ctx.beginPath();
+      ctx.arc(goal.x, goal.y, goal.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText('GOAL', goal.x, goal.y - 40);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Stage: ${currentStageIndex + 1} / ${stages.length}`, 10, 20);
+
+      drawBusStopSigns();
+    }
+
+    function loop() {
+      update();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawRoad();
+      drawBuildings();
+      drawStartGoal();
+      drawBus();
+      requestAnimationFrame(loop);
+    }
+
+    buildStage(currentStageIndex);
+    resetBus();
+    loop();
+  </script>
+</body>
+</html>
