@@ -15,6 +15,7 @@
             width: 100vw;
             height: 100vh;
             scrollbar-width: none; /* 隱藏捲軸 (Firefox) */
+            scroll-behavior: smooth;
         }
         .scroll-container::-webkit-scrollbar { display: none; /* 隱藏捲軸 (Chrome) */ }
 
@@ -59,6 +60,33 @@
             <div class="game-title">點擊開始：遊戲二</div>
         </div>
     </div>
+    <script>
+    const container = document.querySelector('.scroll-container');
+    let currentIndex = 0;
+    const totalGames = document.querySelectorAll('.game-card').length;
+
+    function autoScroll() {
+        currentIndex++;
+        
+        // 如果捲動到最後一張，回到第一張
+        if (currentIndex >= totalGames) {
+            currentIndex = 0;
+        }
+
+        // 執行平滑捲動
+        container.scrollTo({
+            left: currentIndex * window.innerWidth,
+            behavior: 'smooth'
+        });
+    }
+
+    // 每 3 秒執行一次 (3000 毫秒)
+    let scrollInterval = setInterval(autoScroll, 3000);
+
+    // 當使用者手動觸碰或點擊時，暫時停止自動捲動，避免衝突
+    container.addEventListener('touchstart', () => clearInterval(scrollInterval));
+    container.addEventListener('mousedown', () => clearInterval(scrollInterval));
+    </script>
 
 </body>
 </html>
