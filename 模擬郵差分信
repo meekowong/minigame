@@ -1,8 +1,23 @@
-<div style="position: relative; width: 100%; height: 0; padding-top: 56.2225%;
- padding-bottom: 0; box-shadow: 0 2px 8px 0 rgba(63,69,81,0.16); margin-top: 1.6em; margin-bottom: 0.9em; overflow: hidden;
- border-radius: 8px; will-change: transform;">
-  <iframe loading="lazy" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; border: none; padding: 0;margin: 0;"
-    src="https://www.canva.com/design/DAHCT2J4knM/_ddGdhHj8B8nK2YNUvaLtA/view?embed" allowfullscreen="allowfullscreen" allow="fullscreen">
-  </iframe>
-</div>
-黃潔盈 設計的 <a href="https:&#x2F;&#x2F;www.canva.com&#x2F;design&#x2F;DAHCT2J4knM&#x2F;_ddGdhHj8B8nK2YNUvaLtA&#x2F;view?utm_content=DAHCT2J4knM&amp;utm_campaign=designshare&amp;utm_medium=embeds&amp;utm_source=link" target="_blank" rel="noopener">模擬郵差分信遊戲</a>
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game 3 - Canva 遊戲</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; }
+        /* 讓 Canva 視窗填滿整個螢幕 */
+        iframe {
+            width: 100vw;
+            height: 100vh;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- 這裡貼上你的 Canva 嵌入網址 -->
+    <iframe src="https://www.canva.com/design/DAHCT2J4knM/_ddGdhHj8B8nK2YNUvaLtA/view" 
+            allowfullscreen="allowfullscreen" allow="fullscreen">
+    </iframe>
+</body>
+</html>
