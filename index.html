@@ -88,9 +88,6 @@
     // 每 3 秒執行一次 (3000 毫秒)
     let scrollInterval = setInterval(autoScroll, 3000);
 
-    // 當使用者手動觸碰或點擊時，暫時停止自動捲動，避免衝突
-    container.addEventListener('touchstart', () => clearInterval(scrollInterval));
-    container.addEventListener('mousedown', () => clearInterval(scrollInterval));
     </script>
 
 </body>
