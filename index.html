@@ -5,58 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>我的遊戲大廳</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; touch-action: pan-x; }
+    body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; touch-action: pan-x; }
+    
+    /* 橫向捲動容器 */
+    .scroll-container {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        width: 100vw;
+        height: 100vh;
+        scrollbar-width: none; /* 隱藏捲軸 (Firefox) */
+        scroll-behavior: smooth;
+        -webkit-overflow-scrolling: touch; /* 讓 iOS 滑動更順暢 */
+    }
+    .scroll-container::-webkit-scrollbar { display: none; /* 隱藏捲軸 (Chrome) */ }
+
+    /* 每張全螢幕封面圖 */
+    .game-card {
+        flex: 0 0 100vw;
+        height: 100vh;
+        scroll-snap-align: start;
+        position: relative;
+        cursor: pointer;
         
-        /* 橫向捲動容器 */
-        .scroll-container {
-            display: flex;
-            overflow-x: auto;
-            scroll-snap-type: x mandatory;
-            width: 100vw;
-            height: 100vh;
-            scrollbar-width: none; /* 隱藏捲軸 (Firefox) */
-            scroll-behavior: smooth;
-            -webkit-overflow-scrolling: touch; /* 讓 iOS 滑動更順暢 */
-        }
-        .scroll-container::-webkit-scrollbar { display: none; /* 隱藏捲軸 (Chrome) */ }
+        /* 徹底移除行動裝置點擊時出現的預設框線與高亮色 */
+        -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
+        -webkit-tap-highlight-color: transparent !important;
+        outline: none !important;
+        border: none !important;
+    }
 
-        /* 每張全螢幕封面圖 */
-        .game-card {
-            flex: 0 0 100vw;
-            height: 100vh;
-            scroll-snap-align: start;
-            position: relative;
-            cursor: pointer;
-            -webkit-tap-highlight-color: transparent; /* 移除行動裝置點擊藍色高亮 */
-        }
+    .game-card img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover; /* 確保圖片填滿螢幕不變形 */
+        
+        /* 房堵部分瀏覽器為圖片加上預設的邊框或邊界陰影 */
+        border: none !important;
+        outline: none !important;
+        -webkit-user-drag: none; /* 防止在手機上不小心把圖片整張拖曳出來 */
+    }
 
-        .game-card img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover; /* 確保圖片填滿螢幕不變形 */
-        }
+    .game-title {
+        position: absolute;
+        bottom: 40px;
+        left: 24px;
+        right: 24px;
+        color: white;
+        font-size: 2rem; /* 稍微縮小字體以防手機版換行爆開 */
+        font-family: sans-serif;
+        text-shadow: 2px 2px 10px rgba(0,0,0,0.6);
+        word-wrap: break-word;
+    }
 
+    /* 針對桌電/大螢幕微調字體 */
+    @media (min-width: 768px) {
         .game-title {
-            position: absolute;
-            bottom: 40px;
-            left: 24px;
-            right: 24px;
-            color: white;
-            font-size: 2rem; /* 稍微縮小字體以防手機版換行爆開 */
-            font-family: sans-serif;
-            text-shadow: 2px 2px 10px rgba(0,0,0,0.6);
-            word-wrap: break-word;
+            font-size: 3rem;
+            left: 50px;
+            bottom: 50px;
         }
-
-        /* 針對桌電/大螢幕微調字體 */
-        @media (min-width: 768px) {
-            .game-title {
-                font-size: 3rem;
-                left: 50px;
-                bottom: 50px;
-            }
-        }
-    </style>
+    }
+</style>
 </head>
 <body>
 
