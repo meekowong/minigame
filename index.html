@@ -2,10 +2,10 @@
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>我的遊戲大廳</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; touch-action: pan-x; }
         
         /* 橫向捲動容器 */
         .scroll-container {
@@ -16,6 +16,7 @@
             height: 100vh;
             scrollbar-width: none; /* 隱藏捲軸 (Firefox) */
             scroll-behavior: smooth;
+            -webkit-overflow-scrolling: touch; /* 讓 iOS 滑動更順暢 */
         }
         .scroll-container::-webkit-scrollbar { display: none; /* 隱藏捲軸 (Chrome) */ }
 
@@ -26,6 +27,7 @@
             scroll-snap-align: start;
             position: relative;
             cursor: pointer;
+            -webkit-tap-highlight-color: transparent; /* 移除行動裝置點擊藍色高亮 */
         }
 
         .game-card img {
@@ -36,71 +38,115 @@
 
         .game-title {
             position: absolute;
-            bottom: 50px;
-            left: 50px;
+            bottom: 40px;
+            left: 24px;
+            right: 24px;
             color: white;
-            font-size: 3rem;
+            font-size: 2rem; /* 稍微縮小字體以防手機版換行爆開 */
             font-family: sans-serif;
-            text-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+            text-shadow: 2px 2px 10px rgba(0,0,0,0.6);
+            word-wrap: break-word;
+        }
+
+        /* 針對桌電/大螢幕微調字體 */
+        @media (min-width: 768px) {
+            .game-title {
+                font-size: 3rem;
+                left: 50px;
+                bottom: 50px;
+            }
         }
     </style>
 </head>
 <body>
 
     <div class="scroll-container">
-        <!-- 遊戲 1 -->
-        <div class="game-card" onclick="window.open('巡邏走廊.html', '_blank')">
+        <div class="game-card" onclick="openGame('巡邏走廊.html')">
             <img src="巡邏走廊 - 規則介紹.png" alt="Game 1">
             <div class="game-title">點擊開始：巡邏走廊</div>
         </div>
 
-        <!-- 遊戲 2 -->
-        <div class="game-card" onclick="window.open('模擬揸巴士.html', '_blank')">
+        <div class="game-card" onclick="openGame('模擬揸巴士.html')">
             <img src="模擬揸巴士 - 規則介紹.png" alt="Game 2">
             <div class="game-title">點擊開始：模擬揸巴士</div>
         </div>
         
-        <!-- 遊戲 3 -->
-        <div class="game-card" onclick="window.open('https://garylism.my.canva.site/dahct2j4knm', '_blank')">
+        <div class="game-card" onclick="openGame('https://garylism.my.canva.site/dahct2j4knm')">
             <img src="模擬郵差分信 - 規則介紹.png" alt="Game 3">
             <div class="game-title">點擊開始：模擬郵差分信</div>
         </div>           
         
-        <!-- 遊戲 4 -->
-        <div class="game-card" onclick="window.open('https://garylism.my.canva.site/dahcagp8rns', '_blank')">
+        <div class="game-card" onclick="openGame('https://garylism.my.canva.site/dahcagp8rns')">
             <img src="學習彩虹顏色 - 規則介紹.png" alt="Game 4">
             <div class="game-title">點擊開始：學習彩虹顏色</div>
         </div>        
 
-        <!-- 遊戲 5 -->
-        <div class="game-card" onclick="window.open('仿畫點陣圖.html', '_blank')">
+        <div class="game-card" onclick="openGame('仿畫點陣圖.html')">
             <img src="仿畫點陣圖 - 規則介紹.png" alt="Game 5">
             <div class="game-title">點擊開始：仿畫點陣圖</div>
         </div>        
     </div>
+
     <script>
     const container = document.querySelector('.scroll-container');
     let currentIndex = 0;
     const totalGames = document.querySelectorAll('.game-card').length;
+    let scrollInterval = null;
+
+    // 行動裝置安全開啟連結（避免彈出視窗被攔截）
+    function openGame(url) {
+        // 在目前視窗直接導向，或是安全地開啟新分頁
+        if (window.innerWidth < 1024) {
+            window.location.href = url; // 手機/iPad 建議直接換頁，體驗最好
+        } else {
+            window.open(url, '_blank'); // 電腦版維持開新分頁
+        }
+    }
 
     function autoScroll() {
         currentIndex++;
-        
-        // 如果捲動到最後一張，回到第一張
         if (currentIndex >= totalGames) {
             currentIndex = 0;
         }
 
-        // 執行平滑捲動
+        // 使用 getBoundingClientRect 取得精準的寬度，避開行動裝置虛擬鍵盤或網址列帶來的誤差
+        const containerWidth = container.getBoundingClientRect().width;
+
         container.scrollTo({
-            left: currentIndex * window.innerWidth,
+            left: currentIndex * containerWidth,
             behavior: 'smooth'
         });
     }
 
-    // 每 3 秒執行一次 (3000 毫秒)
-    let scrollInterval = setInterval(autoScroll, 3000);
+    // 啟動自動輪播
+    function startInterval() {
+        if (!scrollInterval) {
+            scrollInterval = setInterval(autoScroll, 3000);
+        }
+    }
 
+    // 停止自動輪播
+    function stopInterval() {
+        clearInterval(scrollInterval);
+        scrollInterval = null;
+    }
+
+    startInterval();
+
+    // 手機優化：當使用者自己用手指滑動時，暫停自動輪播，放開後才重新計時
+    container.addEventListener('touchstart', stopInterval);
+    container.addEventListener('touchend', () => {
+        // 更新當前滑到的位置索引
+        const containerWidth = container.getBoundingClientRect().width;
+        currentIndex = Math.round(container.scrollLeft / containerWidth);
+        startInterval();
+    });
+
+    // 監聽螢幕旋轉/縮放，重新導正畫面的對齊點
+    window.addEventListener('resize', () => {
+        const containerWidth = container.getBoundingClientRect().width;
+        container.scrollLeft = currentIndex * containerWidth;
+    });
     </script>
 
 </body>
